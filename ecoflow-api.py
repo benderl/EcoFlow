@@ -9,9 +9,10 @@ import hashlib
 import random
 import time
 import binascii
+import cmd
 
 
-class EcoflowClient():
+class EcoFlowClient():
     _api_url_base = "https://api.ecoflow.com/iot-open/sign"
     _url_device_list: Optional[str] = None
     _url_device_quota: Optional[str] = None
@@ -60,9 +61,8 @@ class EcoflowClient():
             sys.exit(f"Error fetching API data: {response.text}")
 
     def connect(self) -> None:
-        # Fetch the device list and store it in _devices_data
         self._devices_data = self._get_api(self._url_device_list)
-        print("Connected to Ecoflow API successfully.")
+        print("Connected to Ecoflow API.")
 
     def device_list(self) -> list:
         if self._devices_data is None:
@@ -72,7 +72,6 @@ class EcoflowClient():
             print("No devices found in the data.")
             return []
         print("Device list retrieved successfully.")
-        # Return the list of devices
         return self._devices_data.get('data', [])
 
     def get_data(self, serial_number: str) -> Optional[dict]:
@@ -106,74 +105,77 @@ class EcoflowClient():
         return None
 
 
-def print_device_list(device_list: List[dict]) -> None:
-    # print a numbered list of available devices and serial numbers
-    if not device_list:
-        print("No devices found.")
-        return
-    print("Available devices:")
-    for i, device in enumerate(device_list):
-        print(f"{i + 1}: {device.get('productName')} {device.get('sn')} ({device.get('deviceName')}) - {'Online' if device.get('online', 0) == 1 else 'Offline'}")
+class EcoFlowShell(cmd.Cmd):
+    intro = "Welcome to the EcoFlow API Shell. Type help or ? to list commands.\n"
+    prompt = "(ecoflow) "
 
-if __name__ == '__main__':
-    # read key and secret from file
-    try:
-        with open('ef_api_key.txt', 'r') as key_file:
-            key, secret = key_file.read().strip().split(':')
-    except FileNotFoundError:
-        print("No API key file found. Please create 'ef_api_key.txt' with the format 'key:secret'.")
-        sys.exit(1)
+    def __init__(self):
+        super().__init__()
+        # read key and secret from file
+        try:
+            with open('ef_api_key.txt', 'r') as key_file:
+                key, secret = key_file.read().strip().split(':')
+        except FileNotFoundError as error:
+            raise FileNotFoundError("No API key file found. Please create 'ef_api_key.txt' with the format 'key:secret'.") from error
+        except ValueError as error:
+            raise ValueError("Invalid format in 'ef_api_key.txt'. Please use 'key:secret' format.") from error
+        self._api_client = EcoFlowClient(key=key, secret=secret)
+        self._api_client.connect()
 
-    serial_numbers: List[str] = []
+    def _print_device_list(self, device_list: List[dict]) -> None:
+        # print a numbered list of available devices and serial numbers
+        if not device_list:
+            print("No devices found.")
+            return
+        print("Available devices:")
+        for i, device in enumerate(device_list):
+            print(f"{i + 1}: {device.get('productName')} {device.get('sn')} ({device.get('deviceName')}) - {'Online' if device.get('online', 0) == 1 else 'Offline'}")
 
-    api_client = EcoflowClient(key=key, secret=secret)
-    api_client.connect()
+    def do_get_mqtt_cert(self, arg):
+        "Retrieve the MQTT certificate"
+        cert = self._api_client.get_mqtt_certificate()
+        if cert:
+            print("MQTT Certificate:")
+            pprint.pprint(cert)
+        else:
+            print("Failed to retrieve MQTT certificate.")
 
-    # main loop to interact with the user
-    print("You can now interact with your devices.")
-    while True:
-        print("Please make your choice:")
-        print("1: Get MQTT certificate")
-        print("2: List all devices")
-        print("3: Get data for a specific device")
-        print("0: Exit")
-        action = input("Enter the number of the action you want to call: ")
-        if action == '1':
-            cert = api_client.get_mqtt_certificate()
-            if cert:
-                print("MQTT Certificate:")
-                pprint.pprint(cert)
-            else:
-                print("Failed to retrieve MQTT certificate.")
-        elif action == '2':
-            device_list = api_client.device_list()
-            print_device_list(device_list)
-        elif action == '3':
-            device_list = api_client.device_list()
-            if not device_list:
-                print("No devices found.")
-            else:
-                print_device_list(device_list)
-                choice = input("Enter the serial number of the device you want to retrieve data for: ")
-                try:
-                    choice_index = int(choice) - 1
-                    if 0 <= choice_index < len(device_list):
-                        serial_numbers.append(
-                            device_list[choice_index].get('sn'))
-                    else:
-                        print("Invalid choice. Exiting.")
-                        sys.exit(0)
-                except ValueError:
-                    print("Invalid input. Exiting.")
-                    sys.exit(0)
-            for serial_number in serial_numbers:
-                device_data = api_client.get_data(serial_number)
+    def do_list_devices(self, arg):
+        "List all devices"
+        device_list = self._api_client.device_list()
+        self._print_device_list(device_list)
+
+    def do_get_data(self, arg):
+        "Show data for a specific device"
+        device_list = self._api_client.device_list()
+        if not device_list:
+            print("No devices found.")
+            return
+        self._print_device_list(device_list)
+        choice = input("Choose a device by list number: ")
+        try:
+            choice_index = int(choice) - 1
+            if 0 <= choice_index < len(device_list):
+                serial_number = device_list[choice_index].get('sn')
+                device_data = self._api_client.get_data(serial_number)
                 if device_data:
                     pprint.pprint(device_data)
                 else:
                     print(f"No data found for device with SN '{serial_number}'.")
-        elif action == '0':
-            print("Exiting the program.")
-            sys.exit(0)
-        else:
-            print("Invalid action. Please try again.")
+            else:
+                print("Invalid choice.")
+        except ValueError:
+            print("Invalid input.")
+
+    def do_exit(self, arg) -> bool:
+        "Exit the programm"
+        print("Exiting the program.")
+        return True
+
+    def default(self, line):
+        print("Unknown command:", line)
+        print("Available commands: get_cert, list_devices, get_data, exit")
+
+
+if __name__ == '__main__':
+    EcoFlowShell().cmdloop()
