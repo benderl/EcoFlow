@@ -2,7 +2,7 @@
 
 import pprint
 import sys
-from typing import Optional
+from typing import List, Optional
 import requests
 import hmac
 import hashlib
@@ -96,7 +96,24 @@ class EcoflowClient():
             if device.get('sn') == serial_number:
                 return "online" if device.get('online', 0) == 1 else "offline"
         return "device not found"
+    
+    def get_mqtt_certificate(self):
+        url = f"{self._api_url_base}/certification"
+        response = self._get_api(url)
+        if response and 'data' in response:
+            return response['data']
+        print("Failed to retrieve MQTT certificate.")
+        return None
 
+
+def print_device_list(device_list: List[dict]) -> None:
+    # print a numbered list of available devices and serial numbers
+    if not device_list:
+        print("No devices found.")
+        return
+    print("Available devices:")
+    for i, device in enumerate(device_list):
+        print(f"{i + 1}: {device.get('productName')} {device.get('sn')} ({device.get('deviceName')}) - {'Online' if device.get('online', 0) == 1 else 'Offline'}")
 
 if __name__ == '__main__':
     # read key and secret from file
@@ -107,33 +124,56 @@ if __name__ == '__main__':
         print("No API key file found. Please create 'ef_api_key.txt' with the format 'key:secret'.")
         sys.exit(1)
 
-    serial_numbers = []
-    if len(sys.argv) > 1:
-        serial_numbers.append(sys.argv[1])
+    serial_numbers: List[str] = []
 
     api_client = EcoflowClient(key=key, secret=secret)
     api_client.connect()
-    device_list = api_client.device_list()
 
-    # print a numbered list of available devices and serial numbers
-    print("Available devices:")
-    for i, device in enumerate(device_list):
-        print(f"{i + 1}: {device.get('productName')} {device.get('sn')} ({device.get('deviceName')}) - {'Online' if device.get('online', 0) == 1 else 'Offline'}")
-
-    if not serial_numbers:
-        choice = input(
-            "Enter the number of the device you want to retrieve data for: ")
-        try:
-            choice_index = int(choice) - 1
-            if 0 <= choice_index < len(device_list):
-                serial_numbers.append(
-                    device_list[choice_index].get('sn'))
+    # main loop to interact with the user
+    print("You can now interact with your devices.")
+    while True:
+        print("Please make your choice:")
+        print("1: Get MQTT certificate")
+        print("2: List all devices")
+        print("3: Get data for a specific device")
+        print("0: Exit")
+        action = input("Enter the number of the action you want to call: ")
+        if action == '1':
+            cert = api_client.get_mqtt_certificate()
+            if cert:
+                print("MQTT Certificate:")
+                pprint.pprint(cert)
             else:
-                print("Invalid choice. Exiting.")
-                sys.exit(0)
-        except ValueError:
-            print("Invalid input. Exiting.")
+                print("Failed to retrieve MQTT certificate.")
+        elif action == '2':
+            device_list = api_client.device_list()
+            print_device_list(device_list)
+        elif action == '3':
+            device_list = api_client.device_list()
+            if not device_list:
+                print("No devices found.")
+            else:
+                print_device_list(device_list)
+                choice = input("Enter the serial number of the device you want to retrieve data for: ")
+                try:
+                    choice_index = int(choice) - 1
+                    if 0 <= choice_index < len(device_list):
+                        serial_numbers.append(
+                            device_list[choice_index].get('sn'))
+                    else:
+                        print("Invalid choice. Exiting.")
+                        sys.exit(0)
+                except ValueError:
+                    print("Invalid input. Exiting.")
+                    sys.exit(0)
+            for serial_number in serial_numbers:
+                device_data = api_client.get_data(serial_number)
+                if device_data:
+                    pprint.pprint(device_data)
+                else:
+                    print(f"No data found for device with SN '{serial_number}'.")
+        elif action == '0':
+            print("Exiting the program.")
             sys.exit(0)
-    for serial_number in serial_numbers:
-        device_data = api_client.get_data(serial_number)
-        pprint.pprint(device_data)
+        else:
+            print("Invalid action. Please try again.")
