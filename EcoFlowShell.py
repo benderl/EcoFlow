@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-import pprint
+from pprint import pprint
 from typing import List
-import cmd
+from cmd import Cmd
 
 from EcoFlowApi import EcoFlowClient
 
-class EcoFlowShell(cmd.Cmd):
+
+class EcoFlowShell(Cmd):
     intro = "Welcome to the EcoFlow API Shell. Type help or ? to list commands.\n"
     prompt = "(EcoFlow) "
 
@@ -16,9 +17,11 @@ class EcoFlowShell(cmd.Cmd):
             with open('ef_api_key.txt', 'r') as key_file:
                 key, secret = key_file.read().strip().split(':')
         except FileNotFoundError as error:
-            raise FileNotFoundError("No API key file found. Please create 'ef_api_key.txt' with the format 'key:secret'.") from error
+            raise FileNotFoundError(
+                "No API key file found. Please create 'ef_api_key.txt' with the format 'key:secret'.") from error
         except ValueError as error:
-            raise ValueError("Invalid format in 'ef_api_key.txt'. Please use 'key:secret' format.") from error
+            raise ValueError(
+                "Invalid format in 'ef_api_key.txt'. Please use 'key:secret' format.") from error
         self._api_client = EcoFlowClient(key=key, secret=secret)
         self._api_client.connect()
 
@@ -36,7 +39,7 @@ class EcoFlowShell(cmd.Cmd):
         cert = self._api_client.get_mqtt_certificate()
         if cert:
             print("MQTT Certificate:")
-            pprint.pprint(cert)
+            pprint(cert)
         else:
             print("Failed to retrieve MQTT certificate.")
 
@@ -59,9 +62,10 @@ class EcoFlowShell(cmd.Cmd):
                 serial_number = device_list[choice_index].get('sn')
                 device_data = self._api_client.get_data(serial_number)
                 if device_data:
-                    pprint.pprint(device_data)
+                    pprint(device_data)
                 else:
-                    print(f"No data found for device with SN '{serial_number}'.")
+                    print(
+                        f"No data found for device with SN '{serial_number}'.")
             else:
                 print("Invalid choice.")
         except ValueError:

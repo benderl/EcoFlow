@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-
-import sys
+from sys import exit
 from typing import Optional
-import requests
-import hmac
-import hashlib
-import random
-import time
-from binascii import hexlify
+from requests import get as requests_get
+from hmac import new as hmac_new
+from hashlib import sha256
+from random import randint
+from time import time
 
 
 class EcoFlowClient():
@@ -23,9 +21,8 @@ class EcoFlowClient():
         self._url_device_quota = f'{self._api_url_base}/device/quota/all?sn='
 
     def _hmac_sha256(self, data: str) -> str:
-        hashed = hmac.new(self._secret.encode('utf-8'),
-                          data.encode('utf-8'), hashlib.sha256).digest()
-        return hexlify(hashed).decode('utf-8')
+        return hmac_new(self._secret.encode('utf-8'),
+                        data.encode('utf-8'), sha256).hexdigest()
 
     def _get_flattened_map(self, json_obj, prefix: Optional[str] = ""):
         def flatten(obj, pre: Optional[str] = ""):
@@ -45,18 +42,18 @@ class EcoFlowClient():
         return '&'.join(f"{key}={params[key]}" for key in sorted(params.keys()))
 
     def _get_api(self, url: str, params: any = None) -> Optional[dict]:
-        nonce = str(random.randint(100000, 999999))
-        timestamp = str(int(time.time() * 1000))
+        nonce = str(randint(100000, 999999))
+        timestamp = str(int(time() * 1000))
         headers = {'accessKey': self._key,
                    'nonce': nonce, 'timestamp': timestamp}
         sign_str = (self._get_query_str(self._get_flattened_map(
             params)) + '&' if params else '') + self._get_query_str(headers)
         headers['sign'] = self._hmac_sha256(sign_str)
-        response = requests.get(url, json=params, headers=headers)
+        response = requests_get(url, json=params, headers=headers)
         if response.status_code == 200:
             return response.json()
         else:
-            sys.exit(f"Error fetching API data: {response.text}")
+            exit(f"Error fetching API data: {response.text}")
 
     def connect(self) -> None:
         self._devices_data = self._get_api(self._url_device_list)
@@ -93,7 +90,7 @@ class EcoFlowClient():
             if device.get('sn') == serial_number:
                 return "online" if device.get('online', 0) == 1 else "offline"
         return "device not found"
-    
+
     def get_mqtt_certificate(self):
         url = f"{self._api_url_base}/certification"
         response = self._get_api(url)
